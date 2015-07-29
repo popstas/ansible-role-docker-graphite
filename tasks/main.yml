@@ -1,0 +1,57 @@
+---
+# В графите много странного:
+# - Конфиги ппо умолчанию неправильные
+# - Не все настройки применяются после перезапуска сервиса
+# Читать оф. доку и вот это
+# - http://www.unicoda.com/?p=1622
+# - http://eax.me/graphite-statsd-collectd/
+
+# Чтобы настроить, нужно хорошо понять, что такое carbon и whisper
+
+# sudo docker run -d --name graphite -p 2000:80 -p 2003:2003 -p 8125:8125/udp -v /etc/graphite:/opt/graphite/conf -v /var/lib/graphite/whisper:/opt/graphite/storage/whisper hopsoft/graphite-statsd
+
+# TODO: graphite HTTP authorization
+
+- name: graphite config directory
+  file: path=/etc/graphite state=directory
+  tags: docker-graphite
+
+# see files/graphite_whisper_metrics_count.ods for count total metrics (for storage-schemas.conf edit)
+- name: carbon configs
+  template: src={{ item }} dest=/etc/graphite/{{ item | replace(".j2", "") }}
+  with_items:
+    - carbon.conf.j2
+    - storage-aggregation.conf.j2
+    - storage-schemas.conf.j2
+  notify: restart graphite
+  tags: docker-graphite
+
+- name: graphite storage directory
+  file: path={{ item }} state=directory
+  with_items:
+    - /var/lib/graphite
+    - /var/lib/graphite/whisper
+  tags: docker-graphite
+
+# TODO: while first run:
+# failed: [localhost] => {"changed": true, "failed": true}
+# msg: Docker API Error: Conflict. The name "graphite" is already in use by container e2c8d3822535. You have to delete (or rename) that container to be able to reuse that name.
+- name: run graphite docker
+  docker:
+    name: graphite
+    image: hopsoft/graphite-statsd:v0.9.12-phusion0.9.15
+    ports:
+      - "2000:80"
+      - "2003:2003"
+      - "8125:8125/udp"
+    volumes:
+      - /etc/graphite:/opt/graphite/conf
+      - /var/lib/graphite/whisper:/opt/graphite/storage/whisper
+    state: started
+  tags: docker-graphite
+
+- name: upstart script
+  template: src=upstart.conf.j2 dest="/etc/init/docker-{{ item }}.conf"
+  with_items:
+    - graphite
+  tags: docker-graphite
